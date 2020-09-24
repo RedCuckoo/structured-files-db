@@ -59,10 +59,8 @@ void insertToIndexFile(Sender* newSender) {
 
 //main function
 void insertToMasterFile(char command[MAX_LENGTH_OF_COMMAND]) {
-
 	strtok(command, delims);
 	int id = atoi(strtok(NULL, delims));
-
 
 	if (getAddress(id) != -1) {
 		printf("Sender with such id already exists\n");
@@ -184,6 +182,7 @@ void printMaster() {
 				tempSender.name, tempSender.surname, tempSender.id, tempSender.phone, tempSender.firstDeliveryID, tempSender.isDeleted);
 		//}
 	}
+	fclose(handler.senderFile);
 }
 
 //main function
@@ -197,6 +196,8 @@ void printSlave() {
 				tempDelivery.id, tempDelivery.city, tempDelivery.departmentNumber, tempDelivery.nextDeliveryID, tempDelivery.senderID, tempDelivery.isDeleted);
 		//}
 	}
+
+	fclose(handler.deliveryFile);
 }
 
 //helper
@@ -469,12 +470,71 @@ void deleteSlave(char command[MAX_LENGTH_OF_COMMAND]) {
 	}
 }
 
-void runGB() {
-
+void addToGCIndexTable(Sender* sender) {
+	FILE* indexTable = fopen("temp.ind", "rb+");
+	int oldIndex;
+	fread(&oldIndex, sizeof(int), 1, indexTable);
+	fseek(indexTable, 0L, SEEK_SET);
+	int newIndex = oldIndex + 1;
+	fwrite(&newIndex, sizeof(int), 1, indexTable);
+	fseek(indexTable, 0L, SEEK_END);
+	fwrite(&(sender->id), sizeof(int), 1, indexTable);
+	fwrite(&oldIndex, sizeof(int), 1, indexTable);
+	fclose(indexTable);
 }
 
 //helper
-void handleCommand() {
+void runGCMaster() {
+	FILE* temp = fopen("temp.dat", "wb+");
+	FILE* tempIndex = fopen("temp.ind", "ab+");
+	int index = 0;
+	fwrite(&index, sizeof(int), 1, tempIndex);
+	fclose(tempIndex);
+
+	handler.senderFile = fopen(handler.senderFileName, "rb");
+
+	Sender sender;
+	while (fread(&sender, sizeof(Sender), 1, handler.senderFile)) {
+		if (!sender.isDeleted) {
+			fwrite(&sender, sizeof(Sender), 1, temp);
+			addToGCIndexTable(&sender);
+		}
+	}
+	fclose(handler.senderFile);
+	fclose(temp);
+	remove(handler.senderFileName);
+	remove(handler.indexFileName);
+	rename("temp.dat", handler.senderFileName);
+	rename("temp.ind", handler.indexFileName);
+}
+
+//helper
+void runGCSlave() {
+	FILE* temp = fopen("temp.dat", "wb+");
+
+	handler.deliveryFile = fopen(handler.deliveryFileName, "rb");
+	
+	Delivery delivery;
+	while (fread(&delivery, sizeof(Delivery), 1, handler.deliveryFile)) {
+		if (!delivery.isDeleted) {
+			fwrite(&delivery, sizeof(Delivery), 1, temp);
+		}
+	}
+
+	fclose(handler.deliveryFile);
+	fclose(temp);
+	remove(handler.deliveryFileName);
+	rename("temp.dat", handler.deliveryFileName);
+}
+
+//main function
+void runGC() {
+	runGCMaster();
+	runGCSlave();
+}
+
+//helper
+bool handleCommand() {
 	char command[MAX_LENGTH_OF_COMMAND];
 	fgets(command, MAX_LENGTH_OF_COMMAND, stdin); //read full line
 	char copyOfCommand[MAX_LENGTH_OF_COMMAND];
@@ -512,9 +572,17 @@ void handleCommand() {
 	else if (!strcmp(option, "update-s")) {
 		updateSlaveFileWrapper(copyOfCommand);
 	}
+	else if (!strcmp(option, "clean")) {
+		runGC();
+	}
+	else if (!strcmp(option, "exit")) {
+		return false;
+	}
 	else {
 		printf("Invalid command\n");
 	}
+
+	return true;
 }
 
 void printMenu();
@@ -539,9 +607,7 @@ int main() {
 
 	printMenu();
 
-	while (true) {
-		handleCommand();
-	}
+	while (handleCommand()) {}
 
 	return 0;
 }
@@ -572,5 +638,6 @@ void printMenu() {
 	printf("\t\"get-s-all\" - get all deliveries by id\n");
 	printf("\t\"del-m id\" - delete sender (with subrecords) by id\n");
 	printf("\t\"del-s deliveryID\" - delete delivery by id\n");
-
+	printf("\t\"clean\" - run garbage collector\n");
+	printf("\t\"exit\" - to exit the database\n");
 }
